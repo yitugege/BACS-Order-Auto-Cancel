@@ -17,7 +17,7 @@ class BACS_Order_Auto_Cancel {
     private $check_interval = 3600; // 每小时检查一次
     private $cancel_hours = 72; // 72小时后取消
     private $reminder_hours = array(24, 48); // 24小时和48小时提醒
-    private $test_mode = true; // 测试模式开关
+    private $test_mode = false; // 测试模式开关
     private $test_cancel_minutes = 4; // 测试模式下的取消时间（分钟）
     private $test_reminder_minutes = array(2, 3); // 测试模式下的提醒时间（分钟）
 
