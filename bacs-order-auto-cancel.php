@@ -2,7 +2,7 @@
 /**
  * Plugin Name: BACS Order Auto Cancel
  * Plugin URI:  
- * Description: 自动取消超过72小时未支付的BACS订单，并在24小时和48小时发送付款提醒邮件
+ * Description: 自动取消超过48小时未支付的BACS订单，并在12小时和36小时发送付款提醒邮件
  * Version: 1.0.0
  * Author: yitu
  * Author URI: 
@@ -15,8 +15,8 @@ if (!defined('ABSPATH')) {
 
 class BACS_Order_Auto_Cancel {
     private $check_interval = 3600; // 每小时检查一次
-    private $cancel_hours = 72; // 72小时后取消
-    private $reminder_hours = array(24, 48); // 24小时和48小时提醒
+    private $cancel_hours = 48; // 48小时后取消
+    private $reminder_hours = array(12, 36); // 12小时和36小时提醒
 
     public function __construct() {
         // 注册激活钩子
@@ -82,21 +82,9 @@ class BACS_Order_Auto_Cancel {
     }
 
     /**
-     * 发送提醒邮件
+     * 获取推荐产品
      */
-    private function send_reminder_email($order, $remaining_hours = null) {
-        $order_id = $order->get_id();
-        $customer_email = $order->get_billing_email();
-        $customer_name = $order->get_billing_first_name() . ' ' . $order->get_billing_last_name();
-        $order_total = $order->get_formatted_order_total();
-        $bank_details = $this->get_bank_details_es();
-        $order_url = $order->get_checkout_order_received_url();
-        $order_link_html = '<a href="' . esc_url($order_url) . '" style="display:inline-block;padding:12px 28px;background:#00ABC5;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:16px;box-shadow:0 2px 8px rgba(0,171,197,0.15);margin:18px 0 10px 0;">Ver mi pedido</a>';
-        $logo_url = 'https://img.5005360.xyz/wp-content/uploads/2022/05/APPLOGO.png';
-        $site_url = get_site_url();
-        if (empty(trim(strip_tags($bank_details)))) {
-            $bank_details = 'Por favor, consulte los datos bancarios en nuestra web o contacte con soporte.';
-        }
+    private function get_recommend_products($order){
 
         // 推荐同类产品
         $recommend_html = '';
@@ -115,6 +103,7 @@ class BACS_Order_Auto_Cancel {
                     'post_type' => 'product',
                     'posts_per_page' => 4,
                     'post__not_in' => array($main_product_id),
+                    'orderby' => 'rand',
                     'tax_query' => array(
                         array(
                             'taxonomy' => 'product_cat',
@@ -155,7 +144,27 @@ class BACS_Order_Auto_Cancel {
                     $recommend_html .= '</tr></table></div>';
                 }
             }
+            return $recommend_html;
         }
+    }
+
+    /**
+     * 发送提醒邮件
+     */
+    private function send_reminder_email($order, $remaining_hours = null) {
+        $order_id = $order->get_id();
+        $customer_email = $order->get_billing_email();
+        $customer_name = $order->get_billing_first_name() . ' ' . $order->get_billing_last_name();
+        $order_total = $order->get_formatted_order_total();
+        $bank_details = $this->get_bank_details_es();
+        $order_url = $order->get_checkout_order_received_url();
+        $order_link_html = '<a href="' . esc_url($order_url) . '" style="display:inline-block;padding:12px 28px;background:#00ABC5;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:16px;box-shadow:0 2px 8px rgba(0,171,197,0.15);margin:18px 0 10px 0;">Ver mi pedido</a>';
+        $logo_url = 'https://img.5005360.xyz/wp-content/uploads/2022/05/APPLOGO.png';
+        $site_url = get_site_url();
+        if (empty(trim(strip_tags($bank_details)))) {
+            $bank_details = 'Por favor, consulte los datos bancarios en nuestra web o contacte con soporte.';
+        }
+           //获取订单url不是thanksyou界面
 
         if ($remaining_hours !== null) {
             $subject = sprintf(__('⏰ URGENTE: Su pedido será cancelado en %d horas - Pedido #%s', 'bacs-order-auto-cancel'), $remaining_hours, $order_id);
@@ -178,7 +187,7 @@ class BACS_Order_Auto_Cancel {
                 <div style="font-size:15px;color:#333;">' . $bank_details . '</div>
             </div>
             <div style="text-align:center;margin:18px 0 18px 0;">' . $order_link_html . '</div>
-            ' . $recommend_html . '
+            ' . $this->get_recommend_products($order) . '
             <p style="font-size:14px;color:#666;margin:18px 0 0 0;">Si ya ha realizado el pago, por favor ignore este mensaje.<br>Si tiene alguna duda o necesita asistencia, no dude en ponerse en contacto con nosotros.</p>
             <div style="margin-top:32px;border-top:1px solid #e0e0e0;padding-top:18px;text-align:right;">
                 <span style="color:#00ABC5;font-weight:bold;font-size:15px;">Atentamente,<br>El equipo de atención al cliente de ELE-GATE</span>
@@ -194,20 +203,21 @@ class BACS_Order_Auto_Cancel {
      * 取消订单
      */
     private function cancel_order($order) {
-        $order->update_status('cancelled', __('Pedido cancelado automáticamente - más de 72 horas sin pago', 'bacs-order-auto-cancel'));
+        $order->update_status('cancelled', __('Pedido cancelado automáticamente - más de ' . $this->cancel_hours . ' horas sin pago', 'bacs-order-auto-cancel'));
         $customer_email = $order->get_billing_email();
         $customer_name = $order->get_billing_first_name() . ' ' . $order->get_billing_last_name();
         $order_id = $order->get_id();
-        $order_url = $order->get_checkout_order_received_url();
+        $order_url = $order->get_view_order_url();
         $order_link_html = '<a href="' . esc_url($order_url) . '" style="display:inline-block;padding:12px 28px;background:#00ABC5;color:#fff;text-decoration:none;border-radius:6px;font-weight:bold;font-size:16px;box-shadow:0 2px 8px rgba(0,171,197,0.15);margin:18px 0 10px 0;">Ver mi pedido</a>';
 
         $subject = sprintf(__('Pedido cancelado - Pedido #%s', 'bacs-order-auto-cancel'), $order_id);
         $message = '<div style="max-width:520px;margin:0 auto;background:#fff;border-radius:10px;box-shadow:0 2px 12px rgba(0,0,0,0.07);padding:32px 28px 24px 28px;font-family:Arial,sans-serif;line-height:1.7;color:#222;">
             <h2 style="color:#d32f2f;margin-top:0;margin-bottom:18px;font-size:22px;">Estimado/a ' . esc_html($customer_name) . ',</h2>
             <div style="background:#fbe9e7;padding:16px 18px;border-radius:7px;margin:18px 0 18px 0;">
-                <p style="margin:0 0 8px 0;font-size:16px;color:#d32f2f;font-weight:bold;">Lamentamos informarle que su pedido <strong>#' . esc_html($order_id) . '</strong> ha sido cancelado automáticamente porque no hemos recibido el pago en el plazo establecido (72 horas).</p>
+                <p style="margin:0 0 8px 0;font-size:16px;color:#d32f2f;font-weight:bold;">Lamentamos informarle que su pedido <strong>#' . esc_html($order_id) . '</strong> ha sido cancelado automáticamente porque no hemos recibido el pago en el plazo establecido (' . $this->cancel_hours . ' horas).</p>
             </div>
             <div style="text-align:center;margin:18px 0 18px 0;">' . $order_link_html . '</div>
+            ' . $this->get_recommend_products($order) . '
             <p style="font-size:14px;color:#666;margin:18px 0 0 0;">Si ya ha realizado el pago o cree que esto es un error, por favor póngase en contacto con nuestro equipo de atención al cliente.<br>Si desea volver a realizar su compra, puede hacerlo en cualquier momento.</p>
             <div style="margin-top:32px;border-top:1px solid #e0e0e0;padding-top:18px;text-align:right;">
                 <span style="color:#00ABC5;font-weight:bold;font-size:15px;">Atentamente,<br>El equipo de atención al cliente de ELE-GATE</span>
